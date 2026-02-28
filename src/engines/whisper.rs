@@ -113,6 +113,8 @@ pub struct WhisperInferenceParams {
     pub suppress_non_speech_tokens: bool,
 
     /// Threshold for detecting silence/no-speech segments (0.0-1.0).
+    /// Higher values are more aggressive at dropping silent segments.
+    /// Default: 0.6. For music/singing, use 0.5–0.8 to skip instrumentals.
     pub no_speech_thold: f32,
 
     /// Initial prompt to provide context to the model.
@@ -120,6 +122,42 @@ pub struct WhisperInferenceParams {
     /// context, vocabulary hints, or style guidance to the model.
     /// Limited to 224 tokens maximum.
     pub initial_prompt: Option<String>,
+
+    /// Entropy threshold for segment validation.
+    /// Segments with entropy above this value are considered low-confidence
+    /// and may be retried or dropped. Lower values = stricter filtering.
+    /// Default in whisper.cpp: 2.4. For music, use 2.2–2.6.
+    pub entropy_thold: f32,
+
+    /// Log probability threshold for segment validation.
+    /// Segments with average log probability below this value are dropped.
+    /// Default in whisper.cpp: -1.0. For music, use -0.5 to -0.8 to
+    /// aggressively filter low-confidence hallucinations.
+    pub logprob_thold: f32,
+
+    /// Sampling temperature. Lower = more deterministic, less hallucination.
+    /// Default: 0.0 (greedy/beam search). For music, keep at 0.0.
+    pub temperature: f32,
+
+    /// Temperature increment for fallback decoding when entropy is high.
+    /// When a segment fails the entropy check, temperature is increased
+    /// by this amount and the segment is re-decoded. Set to 0.0 to
+    /// disable fallback (segments just get dropped instead of retried
+    /// with higher temperature, which often produces worse hallucinations).
+    /// Default in whisper.cpp: 0.2.
+    pub temperature_inc: f32,
+
+    /// Maximum initial timestamp (in seconds). Segments cannot start
+    /// after this many seconds from the beginning of the audio chunk.
+    /// Default: 1.0.
+    pub max_initial_ts: f32,
+
+    /// Beam size for beam search decoding. Larger = more accurate but slower.
+    /// Default: 5.
+    pub beam_size: i32,
+
+    /// Beam search patience factor. -1.0 uses the default from whisper.cpp.
+    pub beam_patience: f32,
 }
 
 impl Default for WhisperInferenceParams {
@@ -133,8 +171,15 @@ impl Default for WhisperInferenceParams {
             print_timestamps: false,
             suppress_blank: true,
             suppress_non_speech_tokens: true,
-            no_speech_thold: 0.2,
+            no_speech_thold: 0.6,
             initial_prompt: None,
+            entropy_thold: 2.4,
+            logprob_thold: -1.0,
+            temperature: 0.0,
+            temperature_inc: 0.2,
+            max_initial_ts: 1.0,
+            beam_size: 5,
+            beam_patience: -1.0,
         }
     }
 }
@@ -210,10 +255,8 @@ impl TranscriptionEngine for WhisperEngine {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut context_params = WhisperContextParameters::default();
         context_params.use_gpu = params.use_gpu;
-        let context = WhisperContext::new_with_params(
-            model_path.to_str().unwrap(),
-            context_params,
-        )?;
+        let context =
+            WhisperContext::new_with_params(model_path.to_str().unwrap(), context_params)?;
 
         let state = context.create_state()?;
 
@@ -243,8 +286,8 @@ impl TranscriptionEngine for WhisperEngine {
         let whisper_params = params.unwrap_or_default();
 
         let mut full_params = FullParams::new(SamplingStrategy::BeamSearch {
-            beam_size: 3,
-            patience: -1.0,
+            beam_size: whisper_params.beam_size,
+            patience: whisper_params.beam_patience,
         });
         full_params.set_language(whisper_params.language.as_deref());
         full_params.set_translate(whisper_params.translate);
@@ -255,6 +298,11 @@ impl TranscriptionEngine for WhisperEngine {
         full_params.set_suppress_blank(whisper_params.suppress_blank);
         full_params.set_suppress_non_speech_tokens(whisper_params.suppress_non_speech_tokens);
         full_params.set_no_speech_thold(whisper_params.no_speech_thold);
+        full_params.set_entropy_thold(whisper_params.entropy_thold);
+        full_params.set_logprob_thold(whisper_params.logprob_thold);
+        full_params.set_temperature(whisper_params.temperature);
+        full_params.set_temperature_inc(whisper_params.temperature_inc);
+        full_params.set_max_initial_ts(whisper_params.max_initial_ts);
 
         if let Some(ref prompt) = whisper_params.initial_prompt {
             full_params.set_initial_prompt(prompt);

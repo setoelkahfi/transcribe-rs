@@ -68,6 +68,9 @@ whisper-rs = { version = "0.13.2", features = ["vulkan"], optional = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 whisper-rs = { version = "0.13.2", features = ["vulkan"], optional = true }
 
+[target.'cfg(target_os = "android")'.dependencies]
+whisper-rs = { version = "0.13.2", features = [], optional = true }
+
 # Examples with required features
 [[example]]
 name = "parakeet"
