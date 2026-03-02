@@ -36,7 +36,7 @@ thiserror = "2.0.16"
 derive_builder = { version = "0.20.2" }
 
 # Parakeet & Moonshine (ONNX-based)
-ort = { version = "2.0.0-rc.10", optional = true }
+ort = { version = "=2.0.0-rc.10", optional = true }
 ndarray = { version = "0.16.1", optional = true }
 
 # Parakeet only
