@@ -9,7 +9,9 @@ use std::path::Path;
 
 use crate::onnx::session;
 use crate::onnx::Quantization;
-use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult};
+use crate::{
+    ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult,
+};
 
 use super::{MoonshineVariant, SAMPLE_RATE};
 
@@ -51,7 +53,8 @@ impl MoonshineModel {
         quantization: &Quantization,
     ) -> Result<Self, TranscribeError> {
         let encoder_path = session::resolve_model_path(model_dir, "encoder_model", quantization);
-        let decoder_path = session::resolve_model_path(model_dir, "decoder_model_merged", quantization);
+        let decoder_path =
+            session::resolve_model_path(model_dir, "decoder_model_merged", quantization);
 
         if !encoder_path.exists() {
             return Err(TranscribeError::ModelNotFound(encoder_path));
@@ -66,10 +69,16 @@ impl MoonshineModel {
         log::info!("Loading Moonshine decoder from {:?}...", decoder_path);
         let decoder = session::create_session(&decoder_path)?;
 
-        let encoder_input_names: Vec<String> =
-            encoder.inputs.iter().map(|i| i.name.clone()).collect();
-        let decoder_input_names: Vec<String> =
-            decoder.inputs.iter().map(|i| i.name.clone()).collect();
+        let encoder_input_names: Vec<String> = encoder
+            .inputs()
+            .iter()
+            .map(|i| i.name().to_string())
+            .collect();
+        let decoder_input_names: Vec<String> = decoder
+            .inputs()
+            .iter()
+            .map(|i| i.name().to_string())
+            .collect();
 
         let tokenizer = MoonshineTokenizer::new(model_dir)?;
 
@@ -144,7 +153,9 @@ impl MoonshineModel {
 
         let hidden_state = outputs
             .get("last_hidden_state")
-            .ok_or_else(|| TranscribeError::Inference("Missing output: last_hidden_state".to_string()))?
+            .ok_or_else(|| {
+                TranscribeError::Inference("Missing output: last_hidden_state".to_string())
+            })?
             .try_extract_array::<f32>()?;
 
         Ok(hidden_state.to_owned())
@@ -322,8 +333,7 @@ impl KVCache {
 
                 for kv_type in &["key", "value"] {
                     let output_key = format!("present.{}.{}.{}", i, attention_type, kv_type);
-                    let cache_key =
-                        format!("past_key_values.{}.{}.{}", i, attention_type, kv_type);
+                    let cache_key = format!("past_key_values.{}.{}.{}", i, attention_type, kv_type);
 
                     if let Some(output) = outputs.get(&output_key) {
                         let tensor = output.try_extract_array::<f32>()?;
@@ -368,7 +378,9 @@ impl MoonshineTokenizer {
         }
 
         if vocab.is_empty() {
-            return Err(TranscribeError::Config("No vocabulary found in tokenizer.json".to_string()));
+            return Err(TranscribeError::Config(
+                "No vocabulary found in tokenizer.json".to_string(),
+            ));
         }
 
         let mut special_token_ids = Vec::new();

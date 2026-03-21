@@ -17,7 +17,11 @@ static ENGINE: Lazy<Mutex<Option<WhisperEngine>>> = Lazy::new(|| {
         return Mutex::new(None);
     }
 
-    let params = WhisperLoadParams { use_gpu: false };
+    let params = WhisperLoadParams {
+        use_gpu: false,
+        flash_attn: false,
+        gpu_device: 0,
+    };
     match WhisperEngine::load_with_params(&model, params) {
         Ok(engine) => Mutex::new(Some(engine)),
         Err(e) => {
@@ -87,8 +91,8 @@ fn test_prompt_product_names() {
     println!("{}", baseline_result.text);
 
     let glossary_prompt = "QuirkQuid Quill Inc, P3-Quattro, O3-Omni, B3-BondX, E3-Equity, W3-WrapZ, O2-Outlier, U3-UniFund, M3-Mover";
-    let samples = transcribe_rs::audio::read_wav_samples(&audio_path)
-        .expect("Failed to read audio samples");
+    let samples =
+        transcribe_rs::audio::read_wav_samples(&audio_path).expect("Failed to read audio samples");
     let prompted_result = engine
         .transcribe_with(
             &samples,
