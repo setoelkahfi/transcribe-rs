@@ -5,6 +5,11 @@
 
 use std::path::Path;
 
+use crate::TranscribeError;
+
+/// Number of samples per millisecond at 16 kHz.
+pub const SAMPLES_PER_MS: usize = 16;
+
 /// Read WAV file samples and convert them to the required format.
 ///
 /// This function reads a WAV file and converts it to the format expected by
@@ -43,8 +48,10 @@ use std::path::Path;
 /// - Bit depth: 16 bits per sample
 /// - Channels: 1 (mono)
 /// - Format: PCM integer samples
-pub fn read_wav_samples(wav_path: &Path) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
-    let mut reader = hound::WavReader::open(wav_path)?;
+pub fn read_wav_samples(wav_path: &Path) -> Result<Vec<f32>, TranscribeError> {
+    let mut reader = hound::WavReader::open(wav_path).map_err(|e| {
+        TranscribeError::Audio(format!("failed to open {}: {}", wav_path.display(), e))
+    })?;
     let spec = reader.spec();
 
     let expected_spec = hound::WavSpec {
@@ -55,31 +62,31 @@ pub fn read_wav_samples(wav_path: &Path) -> Result<Vec<f32>, Box<dyn std::error:
     };
 
     if spec.channels != expected_spec.channels {
-        return Err(format!(
+        return Err(TranscribeError::Audio(format!(
             "Expected {} channels, found {}",
             expected_spec.channels, spec.channels
-        )
-        .into());
+        )));
     }
 
     if spec.sample_rate != expected_spec.sample_rate {
-        return Err(format!(
+        return Err(TranscribeError::Audio(format!(
             "Expected {} Hz sample rate, found {} Hz",
             expected_spec.sample_rate, spec.sample_rate
-        )
-        .into());
+        )));
     }
 
     if spec.bits_per_sample != expected_spec.bits_per_sample {
-        return Err(format!(
+        return Err(TranscribeError::Audio(format!(
             "Expected {} bits per sample, found {}",
             expected_spec.bits_per_sample, spec.bits_per_sample
-        )
-        .into());
+        )));
     }
 
     if spec.sample_format != expected_spec.sample_format {
-        return Err(format!("Expected Int sample format, found {:?}", spec.sample_format).into());
+        return Err(TranscribeError::Audio(format!(
+            "Expected Int sample format, found {:?}",
+            spec.sample_format
+        )));
     }
 
     let samples: Result<Vec<f32>, _> = reader
@@ -88,4 +95,15 @@ pub fn read_wav_samples(wav_path: &Path) -> Result<Vec<f32>, Box<dyn std::error:
         .collect();
 
     Ok(samples?)
+}
+
+/// Prepend silence to audio samples.
+///
+/// Returns a new buffer with `silence_ms` milliseconds of zeros
+/// followed by the original samples. Assumes 16 kHz sample rate.
+pub fn prepend_silence(samples: &[f32], silence_ms: u32) -> Vec<f32> {
+    let silence_len = silence_ms as usize * SAMPLES_PER_MS;
+    let mut padded = vec![0.0f32; silence_len];
+    padded.extend_from_slice(samples);
+    padded
 }
