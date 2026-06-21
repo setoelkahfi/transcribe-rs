@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
+use crate::decode::{parse_byte_token, GreedyDecoder};
 use crate::onnx::session;
 use crate::onnx::Quantization;
 use crate::{
@@ -179,6 +180,7 @@ impl MoonshineModel {
 
         let encoder_hidden_states = self.encode(&audio)?;
 
+        let mut greedy = GreedyDecoder::new(EOS_TOKEN_ID);
         let mut cache = KVCache::new(&self.variant);
         let mut tokens: Vec<i64> = vec![DECODER_START_TOKEN_ID];
         let mut input_ids = Array2::from_shape_vec((1, 1), vec![DECODER_START_TOKEN_ID])?;
@@ -232,18 +234,13 @@ impl MoonshineModel {
             let last_pos = logits_shape[1] - 1;
 
             let last_logits = logits.slice(ndarray::s![0, last_pos, ..]);
-            let next_token = last_logits
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx as i64)
-                .unwrap_or(EOS_TOKEN_ID);
+
+            let next_token = match greedy.next_token(last_logits.as_slice().unwrap_or(&[])) {
+                Some(t) => t,
+                None => break,
+            };
 
             tokens.push(next_token);
-
-            if next_token == EOS_TOKEN_ID {
-                break;
-            }
 
             input_ids = Array2::from_shape_vec((1, 1), vec![next_token])?;
             cache.update_from_outputs(&outputs, use_cache_branch)?;
@@ -262,7 +259,7 @@ impl SpeechModel for MoonshineModel {
         CAPABILITIES
     }
 
-    fn transcribe(
+    fn transcribe_raw(
         &mut self,
         samples: &[f32],
         _options: &TranscribeOptions,
@@ -420,7 +417,7 @@ impl MoonshineTokenizer {
         let mut bytes: Vec<u8> = Vec::new();
 
         for token in &tokens {
-            if let Some(byte_val) = Self::parse_byte_token(token) {
+            if let Some(byte_val) = parse_byte_token(token) {
                 bytes.push(byte_val);
             } else {
                 let decoded = token.replace('\u{2581}', " ");
@@ -432,14 +429,5 @@ impl MoonshineTokenizer {
         let text = text.strip_prefix(' ').unwrap_or(&text);
 
         Ok(text.to_string())
-    }
-
-    fn parse_byte_token(token: &str) -> Option<u8> {
-        if token.starts_with("<0x") && token.ends_with('>') && token.len() == 6 {
-            let hex = &token[3..5];
-            u8::from_str_radix(hex, 16).ok()
-        } else {
-            None
-        }
     }
 }
